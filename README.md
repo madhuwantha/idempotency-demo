@@ -118,7 +118,7 @@ The app can run fully in-cluster with MongoDB (StatefulSet), Redis (StatefulSet)
 
 
 
-```
+```mermaid
 flowchart TD
   A[Client sends POST /api/bookings\nuserId, resourceId, date] --> B[Resolve idempotency key\nHeader or server-generated]
   B --> C[Claim idempotency in Redis\nSET NX with TTL]
@@ -137,5 +137,5 @@ flowchart TD
   O --> P[Store idempotency response\nstate=completed, TTL refresh]
   P --> Q[Release lock\nsafe delete if holder matches]
   Q --> R[201 Created\nbooking details]
-  
+
 ```
