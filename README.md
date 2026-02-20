@@ -58,6 +58,9 @@ flowchart TD
 
 ```
 
+For a detailed overview of the entire flow, see [SequenceDiagram.md](./SequenceDiagram.md).
+
+
 ## Why this is safe
 
 - **Concurrent same-key requests**: only the first request owns the key; others
