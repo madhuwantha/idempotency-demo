@@ -115,3 +115,27 @@ The app can run fully in-cluster with MongoDB (StatefulSet), Redis (StatefulSet)
    API base URL for the frontend: `http://bookingapp.local/api`.
 
 5. **Day-to-day ops** (logs, restart, Mongo shell, etc.) are in [k8s/readme.md](k8s/readme.md).
+
+
+
+```
+flowchart TD
+  A[Client sends POST /api/bookings\nuserId, resourceId, date] --> B[Resolve idempotency key\nHeader or server-generated]
+  B --> C[Claim idempotency in Redis\nSET NX with TTL]
+  C --> D{Idempotency state?}
+  D -- completed --> E[Return cached response\nstatus + payload]
+  D -- in_progress --> F[409 IDEMPOTENCY_IN_PROGRESS 'try again later']
+  D -- claimed --> G[Acquire Redis lock\nlock:resourceId:date\nSET NX with short TTL]
+  G --> H{Lock acquired?}
+  H -- no --> I[409 RESOURCE_LOCKED 'another booking in progress']
+  H -- yes --> J[Start MongoDB transaction]
+  J --> K[Check existing confirmed booking]
+  K --> L{Exists?}
+  L -- yes --> M[409 ALREADY_BOOKED\npersist in idempotency]
+  L -- no --> N[Insert booking\nunique index enforces safety]
+  N --> O[Commit transaction]
+  O --> P[Store idempotency response\nstate=completed, TTL refresh]
+  P --> Q[Release lock\nsafe delete if holder matches]
+  Q --> R[201 Created\nbooking details]
+  
+```
