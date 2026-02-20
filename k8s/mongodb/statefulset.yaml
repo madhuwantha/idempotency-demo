@@ -1,0 +1,160 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongodb
+  namespace: bookingapp
+spec:
+  selector:
+    matchLabels:
+      app: mongodb
+  serviceName: mongodb-service
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      initContainers:
+        - name: fix-keyfile-permissions
+          image: busybox
+          command:
+            - sh
+            - -c
+            - |
+              cp /keyfile-source/keyfile /keyfile-dest/keyfile
+              chmod 400 /keyfile-dest/keyfile
+              chown 999:999 /keyfile-dest/keyfile
+          volumeMounts:
+            - name: keyfile-source
+              mountPath: /keyfile-source
+            - name: mongodb-keyfile
+              mountPath: /keyfile-dest
+      
+      containers:
+        - name: mongodb
+          image: mongo:8.0
+          ports:
+            - containerPort: 27017
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGO_ROOT_USERNAME
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGO_ROOT_PASSWORD
+          # Start without keyfile first, then switch to keyfile mode
+          command:
+            - bash
+            - -c
+            - |
+              set -euo pipefail
+
+              RS_HOST="${HOSTNAME}.mongodb-service.${POD_NAMESPACE}.svc.cluster.local:27017"
+
+              # Check if this is first run (no admin user exists)
+              if [ ! -f /data/db/admin_created ]; then
+                echo "First run - starting without keyfile/auth to init replset and create admin user"
+                mongod --replSet rs0 --bind_ip_all &
+                MONGO_PID=$!
+                
+                # Wait for MongoDB to be ready
+                until mongosh --host 127.0.0.1:27017 --eval "db.adminCommand('ping')" &>/dev/null; do
+                  sleep 1
+                done
+                
+                # Ensure replica set is initiated (required before user creation in replSet mode)
+                echo "Ensuring replica set initiated..."
+                for i in {1..60}; do
+                  mongosh --host 127.0.0.1:27017 --quiet --eval "
+                    try {
+                      rs.initiate({ _id: 'rs0', members: [ { _id: 0, host: '${RS_HOST}' } ] });
+                    } catch (e) {
+                      const msg = String(e);
+                      if (
+                        msg.match(/already initialized|already initiated|already (?:a )?member|already exists/i)
+                      ) {
+                        // noop
+                      } else {
+                        // keep retrying until config is present
+                      }
+                    }
+                  " >/dev/null 2>&1 || true
+
+                  RS_OK="$(mongosh --host 127.0.0.1:27017 --quiet --eval "try { const s=rs.status(); print(s.ok===1); } catch(e) { print(false); }" 2>/dev/null || true)"
+                  if [ "${RS_OK}" = "true" ]; then
+                    break
+                  fi
+                  sleep 1
+                done
+
+                if [ "${RS_OK:-false}" != "true" ]; then
+                  echo "Replica set failed to initialize in time" >&2
+                  exit 1
+                fi
+
+                # Wait until this node becomes writable primary
+                echo "Waiting for PRIMARY..."
+                for i in {1..60}; do
+                  IS_WRITABLE_PRIMARY="$(mongosh --host 127.0.0.1:27017 --quiet --eval "try { const h=db.adminCommand({ hello: 1 }); print(h.isWritablePrimary === true); } catch(e) { print(false); }" 2>/dev/null || true)"
+                  if [ "${IS_WRITABLE_PRIMARY}" = "true" ]; then
+                    break
+                  fi
+                  sleep 1
+                done
+
+                if [ "${IS_WRITABLE_PRIMARY:-false}" != "true" ]; then
+                  echo "MongoDB did not become PRIMARY in time" >&2
+                  exit 1
+                fi
+
+                # Create or update admin user
+                mongosh --host 127.0.0.1:27017 --quiet --eval "
+                  const admin = db.getSiblingDB('admin');
+                  const user = '${MONGO_INITDB_ROOT_USERNAME}';
+                  const pwd = '${MONGO_INITDB_ROOT_PASSWORD}';
+                  const roles = [ { role: 'root', db: 'admin' } ];
+                  const existing = admin.getUser(user);
+                  if (existing) {
+                    admin.updateUser(user, { pwd, roles });
+                  } else {
+                    admin.createUser({ user, pwd, roles });
+                  }
+                "
+                
+                # Mark as initialized
+                touch /data/db/admin_created
+                
+                # Stop MongoDB gracefully
+                kill -SIGTERM $MONGO_PID
+                wait $MONGO_PID
+                
+                echo "Admin user created, restarting with keyfile..."
+              fi
+              
+              # Start MongoDB with keyfile
+              exec mongod --replSet rs0 --bind_ip_all --keyFile /etc/mongo/keyfile --auth
+          volumeMounts:
+            - name: mongodb-storage
+              mountPath: /data/db
+            - name: mongodb-keyfile
+              mountPath: /etc/mongo
+              readOnly: true
+      
+      volumes:
+        - name: mongodb-storage
+          persistentVolumeClaim:
+            claimName: mongodb-pvc
+        - name: keyfile-source
+          secret:
+            secretName: mongodb-keyfile
+            defaultMode: 0400
+        - name: mongodb-keyfile
+          emptyDir: {}

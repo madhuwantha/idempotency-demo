@@ -1,0 +1,6 @@
+resources:
+  - keyfile-secret.yaml
+  - secret.yaml
+  - pvc.yaml
+  - service.yaml
+  - statefulset.yaml

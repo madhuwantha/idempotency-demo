@@ -1,0 +1,9 @@
+**/.env
+**/node_modules/**
+**/dist/**
+**/secret.yaml
+**/temp-mongodb/**
+**/keyfile-secret.yaml
+OPEN_SOURCE_PUBLISH.md
+MEDIUM_ARTICLE.md
+MERMAID_PROCESS.md

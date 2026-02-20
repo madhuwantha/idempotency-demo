@@ -1,0 +1,9 @@
+# apiVersion: v1
+# kind: ConfigMap
+# metadata:
+#   name: frontend-config
+#   namespace: bookingapp
+# data:
+#   REACT_APP_API_URL: "http://bookingapp.local/api"
+#   # Or for internal Kubernetes communication:
+#   # REACT_APP_API_URL: "http://backend-service/api"

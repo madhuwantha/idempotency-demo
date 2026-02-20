@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: bookingapp
+data:
+  REDIS_URL: "redis://redis-service:6379"
+  NODE_ENV: "production"
+  PORT: "5001"
