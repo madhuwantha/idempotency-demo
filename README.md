@@ -58,8 +58,8 @@ flowchart TD
 
 ```
 
-For a detailed overview of the entire flow, see [SequenceDiagram.md](./SequenceDiagram.md).
-An animated visualization of this flow is available at: [SequenceDiagram Flow](https://storage.googleapis.com/idempotency-demo-animation/index.html)
+- For a detailed overview of the entire flow, see [SequenceDiagram.md](./SequenceDiagram.md).
+- An animated visualization of this flow is available at: [SequenceDiagram Flow](https://storage.googleapis.com/idempotency-demo-animation/index.html)
 
 
 ## Why this is safe
